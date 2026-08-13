@@ -2,20 +2,40 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Weather Twin — build step 1</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weather Twin</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>Weather Twin — Step 3: cities.json + batch Forecast API check</h1>
-  <p>Forecast check (Chicago, hardcoded):</p>
-  <pre id="output">loading...</pre>
+  <main>
+    <h1>Weather Twin</h1>
+    <p class="tagline">Find the city whose weather right now most closely matches yours.</p>
 
-  <p>Geocoding check — type a city name:</p>
-  <input id="city-input" type="text" placeholder="e.g. Chicago" value="Chicago">
-  <button id="geocode-btn">Look up</button>
-  <pre id="geocode-output"></pre>
+    <form id="search-form">
+      <input id="city-input" type="text" placeholder="Type a city, e.g. Chicago" autocomplete="off" required>
+      <button type="submit">Find my twin</button>
+    </form>
 
-  <p>Batch forecast check — current conditions for all of cities.json in one request:</p>
-  <pre id="batch-output">loading...</pre>
+    <div id="status" class="status" hidden></div>
+
+    <section id="result" class="result-card" hidden>
+      <p class="result-source">Weather twin for <strong id="result-source-city"></strong>:</p>
+      <h2 id="result-city"></h2>
+      <p id="result-match" class="match-pct"></p>
+      <h3>Why this match</h3>
+      <ul id="result-breakdown"></ul>
+    </section>
+
+    <footer>
+      <p>
+        Data: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>
+        (current conditions and geocoding). Candidate city list is currently a small
+        hand-picked sample — see README for status.
+      </p>
+    </footer>
+  </main>
+
+  <script src="matching.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

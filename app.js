@@ -1,15 +1,15 @@
-// Step 1: confirm the Open-Meteo Forecast API request/response shape for a single city.
+// Weather Twin — app logic.
 //
-// NOTE (unverified-live caveat): this request shape was written against Open-Meteo's
-// documented API (https://open-meteo.com/en/docs) but could not be tested against the
-// live endpoint from the build sandbox — outbound network access to open-meteo.com was
-// blocked by the sandbox's egress policy. This is a client-side static page, so the
-// actual fetch() below runs in the end user's browser, not the sandbox, and should work
-// fine there. First thing to check when opening this page for real: does #output show
-// real numbers, or an error? If the shape has changed, adjust CURRENT_PARAMS / the
-// parsing below to match.
+// NOTE (unverified-live caveat, still open as of this session): the Open-Meteo request
+// shapes below were built against the documented API (https://open-meteo.com/en/docs)
+// but could not be tested against the live endpoints from the build sandbox — outbound
+// network access to open-meteo.com was blocked by the sandbox's egress policy. This is a
+// client-side static page, so the fetch() calls below run in the end user's browser, not
+// the sandbox, and should work there. First thing to check when opening this page for
+// real: does a search actually return a result, or an error? See README.md.
 
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
+const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
 
 const CURRENT_PARAMS = [
   "temperature_2m",
@@ -21,29 +21,6 @@ const CURRENT_PARAMS = [
 ].join(",");
 
 const DAILY_PARAMS = ["temperature_2m_max", "temperature_2m_min"].join(",");
-
-async function fetchCurrentConditions(lat, lon) {
-  const url = new URL(FORECAST_URL);
-  url.searchParams.set("latitude", lat);
-  url.searchParams.set("longitude", lon);
-  url.searchParams.set("current", CURRENT_PARAMS);
-  url.searchParams.set("daily", DAILY_PARAMS);
-  url.searchParams.set("temperature_unit", "fahrenheit");
-  url.searchParams.set("wind_speed_unit", "mph");
-  url.searchParams.set("timezone", "auto");
-
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Forecast API returned ${res.status}`);
-  }
-  return res.json();
-}
-
-// Step 2: turn a typed city name into a lat/lon via the Open-Meteo Geocoding API.
-// Same unverified-live caveat as the Forecast API above — build against the documented
-// shape, flag it, confirm for real when this runs in an actual browser.
-
-const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
 
 async function geocodeCity(name) {
   const url = new URL(GEOCODING_URL);
@@ -59,57 +36,36 @@ async function geocodeCity(name) {
 
   // Documented shape: { results: [ { name, latitude, longitude, country, admin1, ... } ] }
   // When there are zero matches, Open-Meteo omits the "results" key entirely rather than
-  // returning an empty array — handle both.
+  // returning an empty array.
   if (!data.results || data.results.length === 0) {
     return [];
   }
   return data.results;
 }
 
-async function runForecastCheck() {
-  const output = document.getElementById("output");
-  try {
-    // Chicago, IL
-    const data = await fetchCurrentConditions(41.85, -87.65);
+async function fetchCurrentConditions(lat, lon) {
+  const url = new URL(FORECAST_URL);
+  url.searchParams.set("latitude", lat);
+  url.searchParams.set("longitude", lon);
+  url.searchParams.set("current", CURRENT_PARAMS);
+  url.searchParams.set("daily", DAILY_PARAMS);
+  url.searchParams.set("temperature_unit", "fahrenheit");
+  url.searchParams.set("wind_speed_unit", "mph");
+  url.searchParams.set("timezone", "auto");
 
-    if (!data.current || !data.daily) {
-      throw new Error(
-        "Response is missing 'current' or 'daily' — API shape has changed, see app.js CURRENT_PARAMS/DAILY_PARAMS."
-      );
-    }
-
-    output.textContent = JSON.stringify(data, null, 2);
-    console.log("Open-Meteo forecast response:", data);
-  } catch (err) {
-    output.textContent = `Error: ${err.message}`;
-    console.error(err);
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Forecast API returned ${res.status}`);
   }
+  const data = await res.json();
+  if (!data.current || !data.daily) {
+    throw new Error("Forecast response is missing 'current' or 'daily' — API shape may have changed.");
+  }
+  return data;
 }
 
-async function runGeocodeCheck() {
-  const input = document.getElementById("city-input");
-  const output = document.getElementById("geocode-output");
-  output.textContent = "loading...";
-  try {
-    const results = await geocodeCity(input.value);
-    if (results.length === 0) {
-      output.textContent = "No matches.";
-      return;
-    }
-    output.textContent = JSON.stringify(results, null, 2);
-    console.log("Open-Meteo geocoding results:", results);
-  } catch (err) {
-    output.textContent = `Error: ${err.message}`;
-    console.error(err);
-  }
-}
-
-// Step 3: batch-fetch current conditions for a whole candidate list in one request,
-// using Open-Meteo's comma-separated multi-coordinate mode. Documented behavior: when
-// given N comma-separated lat/lon pairs, the response body is a JSON *array* of N
-// per-location objects (same shape as the single-location response), in the same order
-// as the input coordinates — not a single object. Unverified live, same caveat as above.
-
+// Batch mode: Open-Meteo returns a JSON array (one entry per input coordinate, in the
+// same order) when latitude/longitude are given as comma-separated lists.
 async function fetchBatchConditions(cities) {
   const url = new URL(FORECAST_URL);
   url.searchParams.set("latitude", cities.map((c) => c.lat).join(","));
@@ -125,22 +81,16 @@ async function fetchBatchConditions(cities) {
     throw new Error(`Forecast API (batch) returned ${res.status}`);
   }
   const data = await res.json();
-
   if (!Array.isArray(data)) {
-    throw new Error(
-      "Expected an array for a multi-coordinate batch request — API shape has changed, see fetchBatchConditions()."
-    );
+    throw new Error("Expected an array for a multi-coordinate batch request — API shape may have changed.");
   }
   if (data.length !== cities.length) {
-    throw new Error(
-      `Batch response length (${data.length}) doesn't match request (${cities.length}) — can't safely zip results back to cities.`
-    );
+    throw new Error(`Batch response length (${data.length}) doesn't match request (${cities.length}).`);
   }
-
   return data.map((result, i) => ({ ...cities[i], weather: result }));
 }
 
-async function loadCities() {
+async function loadCandidateCities() {
   const res = await fetch("cities.json");
   if (!res.ok) {
     throw new Error(`Failed to load cities.json: ${res.status}`);
@@ -148,23 +98,98 @@ async function loadCities() {
   return res.json();
 }
 
-async function runBatchCheck() {
-  const output = document.getElementById("batch-output");
+const BREAKDOWN_LABELS = {
+  tempHigh: { label: "High", unit: "°F" },
+  tempLow: { label: "Low", unit: "°F" },
+  feelsLike: { label: "Feels like", unit: "°F" },
+  humidity: { label: "Humidity", unit: "%" },
+  windSpeed: { label: "Wind", unit: " mph" },
+  cloudCover: { label: "Cloud cover", unit: "%" },
+};
+
+function renderBreakdown(breakdown) {
+  const list = document.getElementById("result-breakdown");
+  list.innerHTML = "";
+  for (const key of WeatherTwin.FEATURE_KEYS) {
+    const { label, unit } = BREAKDOWN_LABELS[key];
+    const { target, candidate } = breakdown[key];
+    const li = document.createElement("li");
+    li.textContent = `${label}: ${Math.round(target)}${unit} vs ${Math.round(candidate)}${unit}`;
+    list.appendChild(li);
+  }
+}
+
+function setStatus(message, isError = false) {
+  const status = document.getElementById("status");
+  status.textContent = message;
+  status.hidden = !message;
+  status.classList.toggle("error", isError);
+}
+
+function setLoading(isLoading) {
+  document.getElementById("city-input").disabled = isLoading;
+  document.querySelector("#search-form button").disabled = isLoading;
+}
+
+async function handleSearch(cityName) {
+  const resultEl = document.getElementById("result");
+  resultEl.hidden = true;
+  setLoading(true);
+
   try {
-    const cities = await loadCities();
-    const withWeather = await fetchBatchConditions(cities);
-    output.textContent = JSON.stringify(withWeather, null, 2);
-    console.log("Batch forecast results:", withWeather);
+    setStatus("Looking up city...");
+    const matches = await geocodeCity(cityName);
+    if (matches.length === 0) {
+      setStatus(`No matches found for "${cityName}".`, true);
+      return;
+    }
+    const target = matches[0];
+
+    setStatus(`Fetching current weather for ${target.name}, ${target.country}...`);
+    const targetWeather = await fetchCurrentConditions(target.latitude, target.longitude);
+
+    setStatus("Loading candidate cities...");
+    const candidates = await loadCandidateCities();
+
+    setStatus(`Checking weather in ${candidates.length} candidate cities...`);
+    const candidatesWithWeather = await fetchBatchConditions(candidates);
+
+    const { best, thresholdUsed } = WeatherTwin.findBestMatch(
+      { name: target.name, country: target.country },
+      targetWeather,
+      candidatesWithWeather
+    );
+
+    if (!best) {
+      setStatus("No candidates survived the temperature filter — try a different city.", true);
+      return;
+    }
+
+    document.getElementById("result-source-city").textContent = `${target.name}, ${target.country}`;
+    document.getElementById("result-city").textContent = `${best.name}, ${best.country}`;
+    document.getElementById("result-match").textContent = `${best.matchPct}% match`;
+    renderBreakdown(best.breakdown);
+    resultEl.hidden = false;
+
+    setStatus("");
+    console.log("Match debug info:", { thresholdUsed, best });
   } catch (err) {
-    output.textContent = `Error: ${err.message}`;
+    setStatus(`Error: ${err.message}`, true);
     console.error(err);
+  } finally {
+    setLoading(false);
   }
 }
 
 function main() {
-  runForecastCheck();
-  document.getElementById("geocode-btn").addEventListener("click", runGeocodeCheck);
-  runBatchCheck();
+  const form = document.getElementById("search-form");
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const cityName = document.getElementById("city-input").value.trim();
+    if (cityName) {
+      handleSearch(cityName);
+    }
+  });
 }
 
 main();

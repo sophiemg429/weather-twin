@@ -1,0 +1,105 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 2rem 1rem;
+  display: flex;
+  justify-content: center;
+}
+
+main {
+  width: 100%;
+  max-width: 32rem;
+}
+
+h1 {
+  margin-bottom: 0.25rem;
+}
+
+.tagline {
+  margin-top: 0;
+  opacity: 0.75;
+}
+
+#search-form {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1.5rem 0;
+}
+
+#city-input {
+  flex: 1;
+  padding: 0.6rem 0.8rem;
+  font-size: 1rem;
+  border: 1px solid #8888;
+  border-radius: 0.4rem;
+}
+
+button {
+  padding: 0.6rem 1rem;
+  font-size: 1rem;
+  border: none;
+  border-radius: 0.4rem;
+  background: #2563eb;
+  color: white;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1d4ed8;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.status {
+  margin: 1rem 0;
+  opacity: 0.8;
+}
+
+.status.error {
+  color: #b91c1c;
+}
+
+.result-card {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid #8884;
+  border-radius: 0.6rem;
+}
+
+.result-source {
+  margin-top: 0;
+  opacity: 0.75;
+}
+
+.result-card h2 {
+  margin: 0.2rem 0;
+}
+
+.match-pct {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #2563eb;
+  margin: 0.4rem 0 1rem;
+}
+
+#result-breakdown {
+  padding-left: 1.2rem;
+  line-height: 1.6;
+}
+
+footer {
+  margin-top: 3rem;
+  font-size: 0.85rem;
+  opacity: 0.65;
+}
+
+footer a {
+  color: inherit;
+}
