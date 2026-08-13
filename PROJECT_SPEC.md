@@ -1,123 +1,120 @@
-# TRR Smart Search — a browser extension for The RealReal
+# Weather Twin — a static web app that finds your city's weather match elsewhere in the world
 
-## The problem
+## The problem / the fun
 
-The RealReal's own search and "you might also like" recommendations are weak:
-no real natural-language search ("white linen short dress" doesn't work),
-recommendations aren't filtered to my size, and they don't reflect my actual taste.
+Given a city, find the other city on Earth whose weather right now is most similar,
+same temperature range, similar humidity, similar wind, etc., and show it as a
+"weather twin" with a % match. No practical necessity here, just a fun, self-contained
+project to keep practicing vibe coding without any billing risk, since every API
+involved is free with no key.
 
-## Approach: browser companion extension (not a scraper)
+## Data sources
 
-This extension runs only on pages I'm already viewing in my own browser. It reads
-what's already loaded on the page and re-ranks/filters it. It does not crawl or
-store a copy of TRR's catalog anywhere. This is a meaningfully safer design than
-building a standalone app backed by a scraped database — TRR's terms of service
-almost certainly prohibit automated bulk scraping, like nearly every retailer's do.
-An extension that enhances a page I've already loaded, with no server-side copy of
-their catalog, is a materially different (and much more defensible) thing.
+### 1. Open-Meteo Forecast API — current conditions
 
-## Key discovery: the data is already on the page, structured
+Free, no API key, no rate-limit risk for a hobby project (documented free-tier ceiling
+is far beyond anything this app would ever hit). Endpoint:
 
-The RealReal is a Next.js app. Every listing/category page embeds a
-`<script id="__NEXT_DATA__" type="application/json">` tag containing the full,
-structured data used to render the page — before any of it becomes HTML. This
-means the extension should read `__NEXT_DATA__` directly instead of scraping
-rendered DOM text or CSS classes (which are auto-generated build hashes, e.g.
-`css-qtk657`, and will silently break on TRR's next deploy).
-
-Path to the data:
 ```
-JSON.parse(document.getElementById('__NEXT_DATA__').textContent)
-  .props.pageProps.serverResult.data.products.edges[].node
+https://api.open-meteo.com/v1/forecast
+  ?latitude={lat1,lat2,...}&longitude={lon1,lon2,...}
+  &current=temperature_2m,relative_humidity_2m,apparent_temperature,
+           wind_speed_10m,cloud_cover,precipitation
+  &daily=temperature_2m_max,temperature_2m_min
+  &temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto
 ```
 
-Example product node (captured live from a real dresses listing page):
-```json
-{
-  "name": "Mock Neck Mini Dress",
-  "brandUnion": { "name": "Saffiya" },
-  "price": {
-    "final": { "formatted": "$135.00", "usdCents": 13500 }
-  },
-  "attributes": [
-    { "label": "Clothing Size", "type": "CLOTHING_SIZE", "values": ["L"] },
-    { "label": "Color", "type": "COLOR", "values": ["Purple"] },
-    { "label": "Condition", "type": "CONDITION", "values": ["Excellent"] },
-    { "label": "Silhouette Dresses", "type": "SILHOUETTE_DRESSES", "values": ["Casual Dress"] }
-  ],
-  "url": "https://www.therealreal.com/products/women/clothing/dresses/saffiya-mock-neck-mini-dress-vtfe5",
-  "images": [{ "url": "https://product-images.therealreal.com/SAFYA20147_1_enlarged.jpg" }],
-  "sku": "...",
-  "availability": "AVAILABLE",
-  "obsessed": false,
-  "obsessionCount": 5
-}
+Supports comma-separated lists of coordinates in one request (batch mode) — returns
+an array of results instead of a single object. This matters a lot for feasibility:
+fetching weather for a candidate list of a few thousand cities can likely be done in
+a small number of batched requests rather than one request per city. **Not verified
+live** (this spec was written without live network access to api.open-meteo.com) —
+first build step should confirm the batch request shape and response format work as
+described against the real endpoint, and adjust if the docs at
+https://open-meteo.com/en/docs have changed.
+
+### 2. Open-Meteo Geocoding API — turning a typed city name into coordinates
+
+```
+https://geocoding-api.open-meteo.com/v1/search?name={query}&count=10&language=en
 ```
 
-Also present in `providerData` on these pages: a `MySizes` object (populated when
-signed in). Worth investigating in a later phase — TRR may already store the
-user's saved sizes, which could save us from building our own size-profile UI.
+Used only for the "type your city" input (so the user doesn't have to know their own
+lat/long) — free, no key, same caveat about verifying live before relying on it.
 
-### Known open question — needs live investigation
+### 3. Candidate city list — a static, bundled dataset (not an API call)
 
-`?keywords=` in the URL does nothing (confirmed: it's silently ignored, the page
-still returns the full unfiltered category). Real search goes through the
-interactive search bar and fires its own request — almost certainly a GraphQL
-call, same shape as the category query but with a text field added to the `where`
-clause. To find it: open a TRR page, DevTools → Network tab → filter by
-`graphql`, then type a real search and inspect the request payload and response
-shape. Do this before building the search-box feature — it determines whether v1
-only re-ranks whatever's currently rendered, or can also drive TRR's own
-full-catalog search.
+Open-Meteo doesn't provide "give me N world cities" — we need our own list of
+candidates to compare against. Use a free, public-domain dataset like GeoNames
+(https://download.geonames.org/export/dump/, CC BY 4.0 — needs attribution in the
+app's About/footer), filtered down to cities with population > 100,000 as a
+starting point (roughly a few thousand cities — enough for interesting variety,
+small enough to keep requests/response sizes reasonable). Store as a static JSON
+file bundled with the app: `[{ name, country, lat, lon, population }, ...]`.
 
-Heads up: TRR shows an aggressive email-signup modal that fires on a timer —
-not just on click — so it can appear mid-interaction and steal focus/keystrokes
-away from whatever you were typing into (confirmed live: it hijacked a search
-query straight into its email field). Any script that types into the page,
-including the extension's own future automated tests, should check for and
-dismiss this modal (and the cookie-consent modal, which appears first) before
-interacting with anything else, and probably re-check after every action rather
-than only once on page load.
+## Matching algorithm
 
-## v1 scope: smarter search only
+Two stages, per the plan discussed:
 
-Everything else (size filtering, personalized recs) is a later phase. Don't build
-them yet.
-
-**Flow:**
-1. Extension detects a TRR listing/search page.
-2. Reads `__NEXT_DATA__`, extracts the product list (name, brand, attributes, price, url, image).
-3. Injects a search box above the results grid.
-4. On query submit: build a short text string per visible product (name + brand + attribute values), get embeddings for the query and every product string, rank by cosine similarity.
-5. Reorder the actual DOM product cards to match the ranked order (map back from the structured data to DOM nodes via the product `url`, which also appears as the card's link `href`).
-6. As more items load (infinite scroll), re-run steps 2–5 on newly added cards (`MutationObserver`).
+1. **Filter.** Given the user's city's current high/low temperature, drop every
+   candidate city outside a threshold (start with ±8°F on both high and low). If
+   fewer than ~10 candidates survive (extreme weather day), progressively widen the
+   threshold (±15°F, then ±25°F, etc.) until there's a reasonable shortlist to rank.
+2. **Rank.** For the surviving shortlist, compute a weighted similarity score across:
+   temperature high/low, "feels like" temperature, humidity, wind speed, and cloud
+   cover. Suggested starting weights (tune later): temp high/low 40%, feels-like 20%,
+   humidity 20%, wind speed 10%, cloud cover 10%. Normalize each feature (e.g.
+   min-max or z-score across the shortlist) before applying weights so no single
+   feature's raw scale dominates. Convert the final weighted distance into a 0–100%
+   match score (closest = 100%). Return the single highest-scoring city (per v1
+   scope) — exclude the user's own city/metro area from candidates.
 
 ## Architecture
 
-No backend server needed for v1. Three pieces, all in one extension:
+Single static HTML/JS page, no backend, no build step, no API key anywhere:
 
-- **Content script** — runs on therealreal.com pages. Reads `__NEXT_DATA__`, injects the search UI, reorders the DOM.
-- **Background service worker** — makes the embedding API call (kept separate from the content script to sidestep the page's CSP on outbound fetches).
-- **Options page** — where I paste an API key for an embeddings provider (Voyage, OpenAI, or Cohere all have cheap/free tiers — a few cents per search at most). Stored via `chrome.storage`.
-
-Manifest V3. Plain JavaScript is fine for v1 — no framework needed for a single injected search box.
+- **index.html** — search input (city name) + result display area.
+- **app.js** — on submit: call the Geocoding API for the typed city → get lat/lon →
+  call the Forecast API for that city's current conditions → batch-call the Forecast
+  API for the candidate shortlist (after the coarse filter) → run the weighted
+  ranking → render the winning city, its country, and the % match.
+- **cities.json** — the static candidate dataset described above, fetched once on
+  page load.
+- No `chrome.storage`, no options page, no service worker — this is a plain web page,
+  not a browser extension. Deployable for free on GitHub Pages once it works locally.
 
 ## Build order
 
-1. Bare-bones extension that loads on therealreal.com and logs the parsed product list from `__NEXT_DATA__` to the console. No API calls yet — just confirm the data read works.
-2. Manually find the real search GraphQL request via DevTools (see open question above) and decide whether v1 reranks in place or also drives TRR's own search.
-3. Inject the search box UI above the results grid.
-4. Wire up the embedding API call and cosine-similarity ranking for whatever's currently rendered.
-5. Reorder the DOM based on scores.
-6. Handle infinite scroll with a `MutationObserver` so new cards get ranked as they load.
+1. Get one real request working against the live Forecast API for a single city
+   (e.g. Chicago) and confirm the actual response shape matches what's assumed above.
+   Fix the request/parsing if the docs have changed.
+2. Get the Geocoding API working: type a city name, get back a lat/lon.
+3. Load `cities.json` (start with a small hand-written sample of ~20 diverse cities
+   to build against before sourcing/trimming the full GeoNames dataset) and confirm
+   the batch forecast request works for multiple coordinates at once.
+4. Implement the two-stage filter + weighted ranking algorithm against the sample
+   list; confirm it produces sane results for a few test cities (Chicago, Miami,
+   Reykjavik).
+5. Swap in the full trimmed GeoNames-derived candidate list.
+6. Build the actual UI: input box, loading state, result card with city/country/%
+   match, and a short "why this match" breakdown (e.g. "Temp: 34°F vs 36°F,
+   Humidity: 61% vs 58%").
+7. Deploy to GitHub Pages.
 
-## Future phases (not v1)
+## Out of scope for v1
 
-- **Size-aware filtering**: straightforward once v1 exists — filter/sort using `attributes` where `type === "CLOTHING_SIZE"` against a saved profile of my sizes per category. Check whether `providerData.MySizes` can be read directly when signed in, before building a separate size-profile UI.
-- **Personalized recommendations**: track items I mark as liked (local storage), embed their text/images, rank new listings by similarity to that set. `obsessionCount` on each product (TRR's own "favorite" counter) could be a secondary signal but it's aggregate across all users, not personal.
+- No accounts, no saved history of past matches.
+- No forecasted/future-day comparison — "now" only.
+- No mobile app — web page only (works fine on mobile browsers as-is).
+- No showing multiple ranked matches (single best match only, per v1 scope) —
+  showing a ranked top 3–5 is a reasonable v2 idea if v1 feels too thin.
 
-## Explicitly out of scope
+## Open questions to resolve during build
 
-- No server-side database of TRR's catalog.
-- No bulk crawling across many pages/categories in the background.
-- No republishing or public hosting of TRR product data.
+- Confirm the Forecast API's actual current/daily parameter names and batch-request
+  response shape live (see note above — unverified at spec time).
+- Decide the exact starting weights for the ranking formula empirically, by testing
+  a handful of well-known city pairs and eyeballing whether the results feel right.
+- Decide how large the final candidate list should be (a few thousand offers good
+  variety but makes the API batch calls larger — may need to batch across multiple
+  requests if there's a URL-length or coordinate-count limit on Open-Meteo's side).
