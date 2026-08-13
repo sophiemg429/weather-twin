@@ -66,10 +66,18 @@ async function fetchCurrentConditions(lat, lon) {
 
 // Batch mode: Open-Meteo returns a JSON array (one entry per input coordinate, in the
 // same order) when latitude/longitude are given as comma-separated lists.
-async function fetchBatchConditions(cities) {
+//
+// A single request built from the full ~6,000-city candidate list produces a URL over
+// 100,000 characters long, which fails with a generic network-level error (not a clean
+// HTTP status) rather than a useful one — most servers cap GET request URLs well under
+// that. Split into smaller chunks instead of one giant request.
+const BATCH_CHUNK_SIZE = 100;
+const BATCH_CONCURRENCY = 6;
+
+async function fetchWeatherChunk(chunk) {
   const url = new URL(FORECAST_URL);
-  url.searchParams.set("latitude", cities.map((c) => c.lat).join(","));
-  url.searchParams.set("longitude", cities.map((c) => c.lon).join(","));
+  url.searchParams.set("latitude", chunk.map((c) => c.lat).join(","));
+  url.searchParams.set("longitude", chunk.map((c) => c.lon).join(","));
   url.searchParams.set("current", CURRENT_PARAMS);
   url.searchParams.set("daily", DAILY_PARAMS);
   url.searchParams.set("temperature_unit", "fahrenheit");
@@ -84,10 +92,39 @@ async function fetchBatchConditions(cities) {
   if (!Array.isArray(data)) {
     throw new Error("Expected an array for a multi-coordinate batch request — API shape may have changed.");
   }
-  if (data.length !== cities.length) {
-    throw new Error(`Batch response length (${data.length}) doesn't match request (${cities.length}).`);
+  if (data.length !== chunk.length) {
+    throw new Error(`Batch response length (${data.length}) doesn't match request (${chunk.length}).`);
   }
-  return data.map((result, i) => ({ ...cities[i], weather: result }));
+  return data.map((result, i) => ({ ...chunk[i], weather: result }));
+}
+
+async function fetchBatchConditions(cities, onProgress) {
+  const chunks = [];
+  for (let i = 0; i < cities.length; i += BATCH_CHUNK_SIZE) {
+    chunks.push(cities.slice(i, i + BATCH_CHUNK_SIZE));
+  }
+
+  const results = new Array(cities.length);
+  let nextChunkIndex = 0;
+  let done = 0;
+
+  async function worker() {
+    while (nextChunkIndex < chunks.length) {
+      const myIndex = nextChunkIndex++;
+      const chunk = chunks[myIndex];
+      const chunkResults = await fetchWeatherChunk(chunk);
+      const offset = myIndex * BATCH_CHUNK_SIZE;
+      for (let i = 0; i < chunkResults.length; i++) {
+        results[offset + i] = chunkResults[i];
+      }
+      done += chunk.length;
+      if (onProgress) onProgress(done, cities.length);
+    }
+  }
+
+  const workerCount = Math.min(BATCH_CONCURRENCY, chunks.length) || 1;
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
 }
 
 async function loadCandidateCities() {
@@ -152,7 +189,9 @@ async function handleSearch(cityName) {
     const candidates = await loadCandidateCities();
 
     setStatus(`Checking weather in ${candidates.length} candidate cities...`);
-    const candidatesWithWeather = await fetchBatchConditions(candidates);
+    const candidatesWithWeather = await fetchBatchConditions(candidates, (done, total) => {
+      setStatus(`Checking weather in ${total} candidate cities... (${done}/${total})`);
+    });
 
     const { best, thresholdUsed } = WeatherTwin.findBestMatch(
       { name: target.name, country: target.country },
