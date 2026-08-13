@@ -70,11 +70,21 @@ async function fetchCurrentConditions(lat, lon) {
 // A single request built from the full ~6,000-city candidate list produces a URL over
 // 100,000 characters long, which fails with a generic network-level error (not a clean
 // HTTP status) rather than a useful one — most servers cap GET request URLs well under
-// that. Split into smaller chunks instead of one giant request.
-const BATCH_CHUNK_SIZE = 100;
-const BATCH_CONCURRENCY = 6;
+// that. Split into chunks instead of one giant request.
+//
+// Open-Meteo's free/no-key tier also rate-limits (HTTP 429) if too many chunk requests
+// fire at once — a first attempt at 6 concurrent 100-city requests tripped it partway
+// through. Fixed by: lower concurrency, larger-but-still-safe chunks (fewer requests
+// overall), and retrying 429s with backoff instead of failing immediately.
+const BATCH_CHUNK_SIZE = 200;
+const BATCH_CONCURRENCY = 3;
+const MAX_RETRIES = 5;
 
-async function fetchWeatherChunk(chunk) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWeatherChunk(chunk, attempt = 1) {
   const url = new URL(FORECAST_URL);
   url.searchParams.set("latitude", chunk.map((c) => c.lat).join(","));
   url.searchParams.set("longitude", chunk.map((c) => c.lon).join(","));
@@ -85,6 +95,15 @@ async function fetchWeatherChunk(chunk) {
   url.searchParams.set("timezone", "auto");
 
   const res = await fetch(url);
+
+  if (res.status === 429 && attempt <= MAX_RETRIES) {
+    const retryAfterHeader = res.headers.get("Retry-After");
+    const retryAfterMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : null;
+    const backoffMs = retryAfterMs || Math.min(1000 * 2 ** (attempt - 1), 8000);
+    await sleep(backoffMs);
+    return fetchWeatherChunk(chunk, attempt + 1);
+  }
+
   if (!res.ok) {
     throw new Error(`Forecast API (batch) returned ${res.status}`);
   }
@@ -98,6 +117,11 @@ async function fetchWeatherChunk(chunk) {
   return data.map((result, i) => ({ ...chunk[i], weather: result }));
 }
 
+// Workers pull chunks off a shared queue. On a permanent (non-retryable-exhausted)
+// failure, we record the error and stop handing out new work, but let already-in-flight
+// workers finish their current chunk cleanly rather than racing a thrown error against
+// other workers' progress callbacks (which previously could overwrite the error message
+// with stale progress text, making a real failure look like it was just "stuck").
 async function fetchBatchConditions(cities, onProgress) {
   const chunks = [];
   for (let i = 0; i < cities.length; i += BATCH_CHUNK_SIZE) {
@@ -107,23 +131,30 @@ async function fetchBatchConditions(cities, onProgress) {
   const results = new Array(cities.length);
   let nextChunkIndex = 0;
   let done = 0;
+  let firstError = null;
 
   async function worker() {
-    while (nextChunkIndex < chunks.length) {
+    while (nextChunkIndex < chunks.length && !firstError) {
       const myIndex = nextChunkIndex++;
       const chunk = chunks[myIndex];
-      const chunkResults = await fetchWeatherChunk(chunk);
-      const offset = myIndex * BATCH_CHUNK_SIZE;
-      for (let i = 0; i < chunkResults.length; i++) {
-        results[offset + i] = chunkResults[i];
+      try {
+        const chunkResults = await fetchWeatherChunk(chunk);
+        const offset = myIndex * BATCH_CHUNK_SIZE;
+        for (let i = 0; i < chunkResults.length; i++) {
+          results[offset + i] = chunkResults[i];
+        }
+        done += chunk.length;
+        if (onProgress) onProgress(done, cities.length);
+      } catch (err) {
+        if (!firstError) firstError = err;
       }
-      done += chunk.length;
-      if (onProgress) onProgress(done, cities.length);
     }
   }
 
   const workerCount = Math.min(BATCH_CONCURRENCY, chunks.length) || 1;
   await Promise.all(Array.from({ length: workerCount }, worker));
+
+  if (firstError) throw firstError;
   return results;
 }
 
