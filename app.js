@@ -28,7 +28,7 @@ async function geocodeCity(name) {
   url.searchParams.set("count", "10");
   url.searchParams.set("language", "en");
 
-  const res = await fetch(url);
+  const res = await fetchWithRetry(url);
   if (!res.ok) {
     throw new Error(`Geocoding API returned ${res.status}`);
   }
@@ -53,7 +53,7 @@ async function fetchCurrentConditions(lat, lon) {
   url.searchParams.set("wind_speed_unit", "mph");
   url.searchParams.set("timezone", "auto");
 
-  const res = await fetch(url);
+  const res = await fetchWithRetry(url);
   if (!res.ok) {
     throw new Error(`Forecast API returned ${res.status}`);
   }
@@ -77,14 +77,30 @@ async function fetchCurrentConditions(lat, lon) {
 // through. Fixed by: lower concurrency, larger-but-still-safe chunks (fewer requests
 // overall), and retrying 429s with backoff instead of failing immediately.
 const BATCH_CHUNK_SIZE = 200;
-const BATCH_CONCURRENCY = 3;
+const BATCH_CONCURRENCY = 2;
 const MAX_RETRIES = 5;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchWeatherChunk(chunk, attempt = 1) {
+// Shared retry-on-429 wrapper. Open-Meteo's free/no-key tier rate-limits under
+// sustained testing/usage — every request path (geocoding, single-city, batch) needs
+// this, not just the batch one, since a plain single request can get 429'd too once
+// the window's exhausted.
+async function fetchWithRetry(url, attempt = 1) {
+  const res = await fetch(url);
+  if (res.status === 429 && attempt <= MAX_RETRIES) {
+    const retryAfterHeader = res.headers.get("Retry-After");
+    const retryAfterMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : null;
+    const backoffMs = retryAfterMs || Math.min(1000 * 2 ** (attempt - 1), 8000);
+    await sleep(backoffMs);
+    return fetchWithRetry(url, attempt + 1);
+  }
+  return res;
+}
+
+async function fetchWeatherChunk(chunk) {
   const url = new URL(FORECAST_URL);
   url.searchParams.set("latitude", chunk.map((c) => c.lat).join(","));
   url.searchParams.set("longitude", chunk.map((c) => c.lon).join(","));
@@ -94,16 +110,7 @@ async function fetchWeatherChunk(chunk, attempt = 1) {
   url.searchParams.set("wind_speed_unit", "mph");
   url.searchParams.set("timezone", "auto");
 
-  const res = await fetch(url);
-
-  if (res.status === 429 && attempt <= MAX_RETRIES) {
-    const retryAfterHeader = res.headers.get("Retry-After");
-    const retryAfterMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : null;
-    const backoffMs = retryAfterMs || Math.min(1000 * 2 ** (attempt - 1), 8000);
-    await sleep(backoffMs);
-    return fetchWeatherChunk(chunk, attempt + 1);
-  }
-
+  const res = await fetchWithRetry(url);
   if (!res.ok) {
     throw new Error(`Forecast API (batch) returned ${res.status}`);
   }
