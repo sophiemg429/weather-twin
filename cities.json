@@ -1,0 +1,22 @@
+[
+  { "name": "Chicago", "country": "United States", "lat": 41.85, "lon": -87.65, "population": 2695598 },
+  { "name": "Miami", "country": "United States", "lat": 25.7617, "lon": -80.1918, "population": 442241 },
+  { "name": "Reykjavik", "country": "Iceland", "lat": 64.1466, "lon": -21.9426, "population": 128793 },
+  { "name": "Dubai", "country": "United Arab Emirates", "lat": 25.2048, "lon": 55.2708, "population": 3331420 },
+  { "name": "Singapore", "country": "Singapore", "lat": 1.3521, "lon": 103.8198, "population": 5685807 },
+  { "name": "Moscow", "country": "Russia", "lat": 55.7558, "lon": 37.6173, "population": 12506468 },
+  { "name": "Sydney", "country": "Australia", "lat": -33.8688, "lon": 151.2093, "population": 5312163 },
+  { "name": "Cape Town", "country": "South Africa", "lat": -33.9249, "lon": 18.4241, "population": 433688 },
+  { "name": "Mumbai", "country": "India", "lat": 19.076, "lon": 72.8777, "population": 12442373 },
+  { "name": "Tokyo", "country": "Japan", "lat": 35.6762, "lon": 139.6503, "population": 13960236 },
+  { "name": "London", "country": "United Kingdom", "lat": 51.5072, "lon": -0.1276, "population": 8961989 },
+  { "name": "Cairo", "country": "Egypt", "lat": 30.0444, "lon": 31.2357, "population": 9539673 },
+  { "name": "Nairobi", "country": "Kenya", "lat": -1.2921, "lon": 36.8219, "population": 4397073 },
+  { "name": "Buenos Aires", "country": "Argentina", "lat": -34.6037, "lon": -58.3816, "population": 2890151 },
+  { "name": "Mexico City", "country": "Mexico", "lat": 19.4326, "lon": -99.1332, "population": 9209944 },
+  { "name": "Toronto", "country": "Canada", "lat": 43.6532, "lon": -79.3832, "population": 2794356 },
+  { "name": "Oslo", "country": "Norway", "lat": 59.9139, "lon": 10.7522, "population": 697010 },
+  { "name": "Bangkok", "country": "Thailand", "lat": 13.7563, "lon": 100.5018, "population": 10539000 },
+  { "name": "Rome", "country": "Italy", "lat": 41.9028, "lon": 12.4964, "population": 2872800 },
+  { "name": "Anchorage", "country": "United States", "lat": 61.2181, "lon": -149.9003, "population": 291247 }
+]

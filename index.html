@@ -5,7 +5,7 @@
 <title>Weather Twin — build step 1</title>
 </head>
 <body>
-  <h1>Weather Twin — Step 2: Geocoding API check</h1>
+  <h1>Weather Twin — Step 3: cities.json + batch Forecast API check</h1>
   <p>Forecast check (Chicago, hardcoded):</p>
   <pre id="output">loading...</pre>
 
@@ -13,6 +13,9 @@
   <input id="city-input" type="text" placeholder="e.g. Chicago" value="Chicago">
   <button id="geocode-btn">Look up</button>
   <pre id="geocode-output"></pre>
+
+  <p>Batch forecast check — current conditions for all of cities.json in one request:</p>
+  <pre id="batch-output">loading...</pre>
   <script src="app.js"></script>
 </body>
 </html>

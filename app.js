@@ -104,9 +104,67 @@ async function runGeocodeCheck() {
   }
 }
 
+// Step 3: batch-fetch current conditions for a whole candidate list in one request,
+// using Open-Meteo's comma-separated multi-coordinate mode. Documented behavior: when
+// given N comma-separated lat/lon pairs, the response body is a JSON *array* of N
+// per-location objects (same shape as the single-location response), in the same order
+// as the input coordinates — not a single object. Unverified live, same caveat as above.
+
+async function fetchBatchConditions(cities) {
+  const url = new URL(FORECAST_URL);
+  url.searchParams.set("latitude", cities.map((c) => c.lat).join(","));
+  url.searchParams.set("longitude", cities.map((c) => c.lon).join(","));
+  url.searchParams.set("current", CURRENT_PARAMS);
+  url.searchParams.set("daily", DAILY_PARAMS);
+  url.searchParams.set("temperature_unit", "fahrenheit");
+  url.searchParams.set("wind_speed_unit", "mph");
+  url.searchParams.set("timezone", "auto");
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Forecast API (batch) returned ${res.status}`);
+  }
+  const data = await res.json();
+
+  if (!Array.isArray(data)) {
+    throw new Error(
+      "Expected an array for a multi-coordinate batch request — API shape has changed, see fetchBatchConditions()."
+    );
+  }
+  if (data.length !== cities.length) {
+    throw new Error(
+      `Batch response length (${data.length}) doesn't match request (${cities.length}) — can't safely zip results back to cities.`
+    );
+  }
+
+  return data.map((result, i) => ({ ...cities[i], weather: result }));
+}
+
+async function loadCities() {
+  const res = await fetch("cities.json");
+  if (!res.ok) {
+    throw new Error(`Failed to load cities.json: ${res.status}`);
+  }
+  return res.json();
+}
+
+async function runBatchCheck() {
+  const output = document.getElementById("batch-output");
+  try {
+    const cities = await loadCities();
+    const withWeather = await fetchBatchConditions(cities);
+    output.textContent = JSON.stringify(withWeather, null, 2);
+    console.log("Batch forecast results:", withWeather);
+  } catch (err) {
+    output.textContent = `Error: ${err.message}`;
+    console.error(err);
+  }
+}
+
 function main() {
   runForecastCheck();
   document.getElementById("geocode-btn").addEventListener("click", runGeocodeCheck);
+  runBatchCheck();
 }
 
 main();
