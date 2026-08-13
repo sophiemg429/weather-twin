@@ -5,9 +5,14 @@
 <title>Weather Twin — build step 1</title>
 </head>
 <body>
-  <h1>Weather Twin — Step 1: single-city Forecast API check</h1>
-  <p>Fetching current conditions for Chicago (41.85, -87.65) from Open-Meteo...</p>
+  <h1>Weather Twin — Step 2: Geocoding API check</h1>
+  <p>Forecast check (Chicago, hardcoded):</p>
   <pre id="output">loading...</pre>
+
+  <p>Geocoding check — type a city name:</p>
+  <input id="city-input" type="text" placeholder="e.g. Chicago" value="Chicago">
+  <button id="geocode-btn">Look up</button>
+  <pre id="geocode-output"></pre>
   <script src="app.js"></script>
 </body>
 </html>

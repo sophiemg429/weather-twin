@@ -39,7 +39,34 @@ async function fetchCurrentConditions(lat, lon) {
   return res.json();
 }
 
-async function main() {
+// Step 2: turn a typed city name into a lat/lon via the Open-Meteo Geocoding API.
+// Same unverified-live caveat as the Forecast API above — build against the documented
+// shape, flag it, confirm for real when this runs in an actual browser.
+
+const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
+
+async function geocodeCity(name) {
+  const url = new URL(GEOCODING_URL);
+  url.searchParams.set("name", name);
+  url.searchParams.set("count", "10");
+  url.searchParams.set("language", "en");
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Geocoding API returned ${res.status}`);
+  }
+  const data = await res.json();
+
+  // Documented shape: { results: [ { name, latitude, longitude, country, admin1, ... } ] }
+  // When there are zero matches, Open-Meteo omits the "results" key entirely rather than
+  // returning an empty array — handle both.
+  if (!data.results || data.results.length === 0) {
+    return [];
+  }
+  return data.results;
+}
+
+async function runForecastCheck() {
   const output = document.getElementById("output");
   try {
     // Chicago, IL
@@ -57,6 +84,29 @@ async function main() {
     output.textContent = `Error: ${err.message}`;
     console.error(err);
   }
+}
+
+async function runGeocodeCheck() {
+  const input = document.getElementById("city-input");
+  const output = document.getElementById("geocode-output");
+  output.textContent = "loading...";
+  try {
+    const results = await geocodeCity(input.value);
+    if (results.length === 0) {
+      output.textContent = "No matches.";
+      return;
+    }
+    output.textContent = JSON.stringify(results, null, 2);
+    console.log("Open-Meteo geocoding results:", results);
+  } catch (err) {
+    output.textContent = `Error: ${err.message}`;
+    console.error(err);
+  }
+}
+
+function main() {
+  runForecastCheck();
+  document.getElementById("geocode-btn").addEventListener("click", runGeocodeCheck);
 }
 
 main();
