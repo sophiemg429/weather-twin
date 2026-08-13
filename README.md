@@ -63,3 +63,7 @@ step (see `PROJECT_SPEC.md` for the full design, `CLAUDE.md` for session convent
 - `cities.json` — candidate city list (currently the 20-city stub, see TODO #2).
 - `test/matching.smoke.js` — Node smoke test for the ranking algorithm:
   `node test/matching.smoke.js`.
+
+## Data attribution
+
+Candidate city data (`cities.json`) is derived from the GeoNames geographical database (https://www.geonames.org), licensed under CC BY 4.0, filtered to cities with population > 100,000. Generated via `scripts/build_cities.py`.
